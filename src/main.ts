@@ -1413,9 +1413,47 @@ function clearFindMarks(): void {
   findIndex = -1;
 }
 
-// (Re)build <mark> highlights for q inside #content only — the file explorer
-// and outline are never touched. Uses marks instead of window.find, so the
-// document selection (and input focus) is never disturbed: IME-safe.
+// Text nodes eligible for search: rendered article text, minus UI chrome,
+// diagrams and unrendered diagram source. Shared by marking and locating.
+function acceptFindText(node: Node): number {
+  const el = (node as Text).parentElement;
+  if (!el) return NodeFilter.FILTER_REJECT;
+  if (el.closest("button, .col-resizer, svg, pre.mermaid"))
+    return NodeFilter.FILTER_REJECT;
+  return NodeFilter.FILTER_ACCEPT;
+}
+
+// Index (0-based) of the first match at/after the current selection start,
+// so Ctrl+F with a selection lands on that occurrence instead of the first.
+// Must run before marking (marking splits text nodes and moves the range).
+function locateSelectionMatch(needle: string): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  const target = range.startContainer;
+  // Element-anchored ranges (multi-node selections) have child-index offsets;
+  // only character-offset Text anchors are mapped precisely.
+  if (!(target instanceof Text)) return 0;
+  const targetOffset = range.startOffset;
+  const lowerNeedle = needle.toLowerCase();
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+    acceptNode(node: Node): number {
+      return acceptFindText(node);
+    },
+  });
+  let count = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const text = (node.nodeValue ?? "").toLowerCase();
+    let pos = text.indexOf(lowerNeedle);
+    while (pos !== -1 && (node !== target || pos < targetOffset)) {
+      count++;
+      pos = text.indexOf(lowerNeedle, pos + needle.length);
+    }
+    if (node === target) return count;
+  }
+  return 0;
+}
 function applyFindMarks(q: string): void {
   clearFindMarks();
   findQuery = q;
@@ -1426,10 +1464,7 @@ function applyFindMarks(q: string): void {
   const needle = q.toLowerCase();
   const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
     acceptNode(node: Node): number {
-      const el = (node as Text).parentElement;
-      if (!el) return NodeFilter.FILTER_REJECT;
-      // Skip UI chrome, diagrams and unrendered diagram source.
-      if (el.closest("button, .col-resizer, svg, pre.mermaid"))
+      if (acceptFindText(node) !== NodeFilter.FILTER_ACCEPT)
         return NodeFilter.FILTER_REJECT;
       const text = node.nodeValue ?? "";
       if (!text || !text.toLowerCase().includes(needle))
@@ -1487,8 +1522,27 @@ function stepFind(backwards: boolean): void {
   paintCurrent(true);
 }
 
-// Enter-triggered + debounced live search: typing pauses briefly → jump to
-// the first match; Enter / ↑ / ↓ step through the rest.
+// Index to start a fresh search from: the first match at/below the current
+// viewport (forward), or the last match strictly above it (backward) —
+// like browser find, instead of always jumping to the document's first hit.
+function startIndexFromViewport(backwards: boolean): number {
+  const n = findMarks.length;
+  if (!n) return -1;
+  const top = content.getBoundingClientRect().top;
+  if (!backwards) {
+    for (let i = 0; i < n; i++) {
+      if (findMarks[i].getBoundingClientRect().top >= top - 2) return i;
+    }
+    return 0; // everything is above → wrap to the first match
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    if (findMarks[i].getBoundingClientRect().top < top - 2) return i;
+  }
+  return n - 1; // everything is below → wrap to the last match
+}
+
+// Enter + debounced live search: typing pauses briefly → jump to the match
+// nearest the viewport; Enter / ↑ / ↓ step through the rest.
 let findDebounce: number | undefined;
 function runFind(backwards: boolean): void {
   window.clearTimeout(findDebounce);
@@ -1501,13 +1555,16 @@ function runFind(backwards: boolean): void {
   }
   if (q !== findQuery) {
     applyFindMarks(q);
-    findIndex = -1;
     if (!findMarks.length) {
       findCount.textContent = "无匹配";
       return;
     }
+    // Fresh query: start from the viewport, not the document top.
+    findIndex = startIndexFromViewport(backwards);
+    paintCurrent(true);
+  } else {
+    stepFind(backwards);
   }
-  stepFind(backwards);
   // Keep typing fluid after clicking the ↑/↓ buttons.
   findInput.focus({ preventScroll: true });
 }
@@ -1536,7 +1593,17 @@ function openFind(): void {
   const snippet = (raw.split(/\r?\n/)[0] ?? "").trim().slice(0, 200);
   if (snippet && snippet !== findInput.value) {
     findInput.value = snippet;
+    // Drop stale marks first so locating counts on clean text (a match
+    // spanning an old <mark> boundary would otherwise be miscounted).
+    // Locate before runFind: marking splits text nodes and moves the range.
+    clearFindMarks();
+    findQuery = "";
+    const at = locateSelectionMatch(snippet);
     runFind(false);
+    if (at > 0 && at < findMarks.length) {
+      findIndex = at;
+      paintCurrent(true);
+    }
   }
   findInput.focus();
   findInput.select();
