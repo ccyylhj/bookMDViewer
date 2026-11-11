@@ -9,17 +9,20 @@
   </head>
   <body>
     <div id="toolbar">
-      <button id="open-btn" class="icon-btn" title="Open file (Ctrl+O)" aria-label="Open file">📂</button>
-      <button id="files-btn" class="icon-btn" title="File explorer (Ctrl+B)" aria-label="File explorer">🗂</button>
-      <button id="font-dec" class="icon-btn" title="Decrease font (Ctrl+-)" aria-label="Decrease font size">A−</button>
-      <button id="font-inc" class="icon-btn" title="Increase font (Ctrl++)" aria-label="Increase font size">A+</button>
-      <button id="wide-toggle" class="icon-btn" title="宽版 / 窄版切换 (Ctrl+Shift+\)" aria-label="Toggle wide content">↔</button>
-      <button id="theme-toggle" class="icon-btn" title="主题:亮色 (点击切换)" aria-label="Toggle color theme">☀️</button>
-      <button id="settings-btn" class="icon-btn" title="设置" aria-label="Settings">⚙</button>
-      <button id="save-btn" title="Save (Ctrl+S)" aria-label="Save" hidden>💾 Save</button>
-      <button id="export-btn" title="Export to HTML" aria-label="Export to HTML">⬇ HTML</button>
-      <button id="edit-toggle" title="Toggle edit mode (Ctrl+E)" aria-label="Toggle edit mode">✎ Edit</button>
-      <button id="toc-toggle" title="Toggle outline (Ctrl+\)" aria-label="Toggle outline">☰</button>
+      <div id="toolbar-more" hidden>
+        <button id="open-btn" class="icon-btn" title="Open file (Ctrl+O)" aria-label="Open file">📂</button>
+        <button id="files-btn" class="icon-btn" title="File explorer (Ctrl+B)" aria-label="File explorer">🗂</button>
+        <button id="font-dec" class="icon-btn" title="Decrease font (Ctrl+-)" aria-label="Decrease font size">A−</button>
+        <button id="font-inc" class="icon-btn" title="Increase font (Ctrl++)" aria-label="Increase font size">A+</button>
+        <button id="wide-toggle" class="icon-btn" title="宽版 / 窄版切换 (Ctrl+Shift+\)" aria-label="Toggle wide content">↔</button>
+        <button id="theme-toggle" class="icon-btn" title="主题:亮色 (点击切换)" aria-label="Toggle color theme">☀️</button>
+        <button id="settings-btn" class="icon-btn" title="设置" aria-label="Settings">⚙</button>
+        <button id="save-btn" title="Save (Ctrl+S)" aria-label="Save" hidden>💾 Save</button>
+        <button id="export-btn" title="Export to HTML" aria-label="Export to HTML">⬇ HTML</button>
+        <button id="edit-toggle" title="Toggle edit mode (Ctrl+E)" aria-label="Toggle edit mode">✎ Edit</button>
+        <button id="toc-toggle" title="Toggle outline (Ctrl+\)" aria-label="Toggle outline">☰</button>
+      </div>
+      <button id="tools-toggle" class="icon-btn" title="展开工具栏" aria-label="展开工具栏">⋮</button>
       <button id="close-doc-btn" class="icon-btn" title="Close document — back to home" aria-label="Close document" hidden>✕</button>
     </div>
     <div id="toast" hidden></div>

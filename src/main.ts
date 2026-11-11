@@ -770,6 +770,24 @@ closeDocBtn.addEventListener("click", () => {
   }
 });
 
+// Collapsible toolbar: only the expander + close stay visible by default.
+const toolsToggle = document.getElementById("tools-toggle") as HTMLButtonElement;
+const toolbarMore = document.getElementById("toolbar-more") as HTMLElement;
+let toolsExpanded = localStorage.getItem("toolbarExpanded") === "true";
+function applyToolsExpanded(): void {
+  toolbarMore.hidden = !toolsExpanded;
+  toolsToggle.classList.toggle("on", toolsExpanded);
+  const label = toolsExpanded ? "收起工具栏" : "展开工具栏";
+  toolsToggle.title = label;
+  toolsToggle.setAttribute("aria-label", label);
+  localStorage.setItem("toolbarExpanded", String(toolsExpanded));
+}
+toolsToggle.addEventListener("click", () => {
+  toolsExpanded = !toolsExpanded;
+  applyToolsExpanded();
+});
+applyToolsExpanded();
+
 // Content font scaling (persisted).
 let fontScale = parseFloat(localStorage.getItem("fontScale") ?? "1") || 1;
 function applyFontScale(): void {

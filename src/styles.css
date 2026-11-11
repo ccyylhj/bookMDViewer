@@ -250,6 +250,16 @@ body.panel-resizing * {
   display: flex;
   gap: 6px;
 }
+#toolbar-more {
+  display: flex;
+  gap: 6px;
+}
+#toolbar-more[hidden] {
+  display: none;
+}
+#tools-toggle.on {
+  color: var(--accent);
+}
 #toolbar button {
   height: 32px;
   padding: 0 10px;
