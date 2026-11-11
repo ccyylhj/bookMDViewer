@@ -223,7 +223,8 @@ function saveColWidths(tableIndex: number, widths: number[]): void {
 // explicit <colgroup>, after which columns can be widened or narrowed freely.
 function makeTablesResizable(): void {
   content.querySelectorAll<HTMLTableElement>("table").forEach((table, tIndex) => {
-    // Wrap once for horizontal scrolling when columns exceed the viewport.
+    // Wrap once so tables share one layout context (never scrolls: tables
+    // always stay within the content width, see applyFixed above).
     if (!table.parentElement?.classList.contains("md-table-wrap")) {
       const wrap = document.createElement("div");
       wrap.className = "md-table-wrap";
@@ -250,11 +251,21 @@ function makeTablesResizable(): void {
 
     const applyFixed = (widths: number[]): void => {
       const cols = Array.from(getColgroup().children) as HTMLElement[];
+      const total = widths.reduce(
+        (a, b) => a + (Number.isFinite(b) ? b : 0),
+        0,
+      );
+      if (total <= 0) return;
+      // Widths are stored as proportions of the table, and the table itself
+      // always stays at 100%: dragging columns only rebalances them, so the
+      // table can never overflow the viewport (no horizontal scrollbar).
+      // Old px values restore fine — only their ratios matter.
       widths.forEach((w, i) => {
-        if (cols[i]) cols[i].style.width = `${w}px`;
+        if (cols[i])
+          cols[i].style.width = `${((w / total) * 100).toFixed(3)}%`;
       });
       table.classList.add("resizable");
-      table.style.width = `${widths.reduce((a, b) => a + b, 0)}px`;
+      table.style.width = "100%";
     };
 
     // Restore remembered widths (only if the column count still matches).
@@ -274,19 +285,38 @@ function makeTablesResizable(): void {
         e.preventDefault();
         e.stopPropagation();
         ensureFixed();
+        const wrap = table.parentElement as HTMLElement | null;
         const cols = Array.from(getColgroup().children) as HTMLElement[];
+        const wrapW = (): number =>
+          wrap?.clientWidth || table.clientWidth || 1;
+        const startWidths = cols.map(
+          (c, j) =>
+            (parseFloat(c.style.width) / 100) * wrapW() ||
+            cells[j].getBoundingClientRect().width,
+        );
         const startX = e.clientX;
-        const startW =
-          parseFloat(cols[i].style.width) ||
-          cells[i].getBoundingClientRect().width;
         document.body.classList.add("col-resizing");
+        const paint = (widths: number[]): void => {
+          const total =
+            widths.reduce((a, b) => a + b, 0) || 1;
+          widths.forEach((w, j) => {
+            if (cols[j])
+              cols[j].style.width = `${((w / total) * 100).toFixed(3)}%`;
+          });
+        };
         const onMove = (me: MouseEvent): void => {
-          const w = Math.max(MIN_COL_W, startW + (me.clientX - startX));
-          cols[i].style.width = `${w}px`;
-          table.style.width = `${cols.reduce(
-            (a, c) => a + (parseFloat(c.style.width) || 0),
-            0,
-          )}px`;
+          const widths = [...startWidths];
+          // Clamp so every other column keeps at least MIN_COL_W:
+          // total never exceeds the container, hence never scrolls.
+          const maxW = Math.max(
+            MIN_COL_W,
+            wrapW() - (widths.length - 1) * MIN_COL_W,
+          );
+          widths[i] = Math.min(
+            maxW,
+            Math.max(MIN_COL_W, startWidths[i] + (me.clientX - startX)),
+          );
+          paint(widths);
         };
         const onUp = (): void => {
           window.removeEventListener("mousemove", onMove);
@@ -294,7 +324,7 @@ function makeTablesResizable(): void {
           document.body.classList.remove("col-resizing");
           saveColWidths(
             tIndex,
-            cols.map((c) => parseFloat(c.style.width) || 0),
+            cols.map((c) => (parseFloat(c.style.width) / 100) * wrapW()),
           );
         };
         window.addEventListener("mousemove", onMove);
@@ -588,7 +618,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,Bli
 .markdown-body pre code{background:transparent;padding:0;font-size:90%}
 .markdown-body blockquote{margin:0;padding:0 1em;color:var(--muted);border-left:4px solid var(--border)}
 .markdown-body table{border-collapse:collapse;width:100%;max-width:100%;margin:1.2em 0;font-size:14.5px;line-height:1.65}
-.markdown-body th,.markdown-body td{border:none;border-bottom:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;overflow-wrap:break-word}
+.markdown-body th,.markdown-body td{border:none;border-bottom:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
 .markdown-body thead th{font-weight:600}
 .markdown-body th:first-child,.markdown-body td:first-child,.markdown-body th:nth-child(2),.markdown-body td:nth-child(2){white-space:nowrap}
 .markdown-body img{max-width:100%}
@@ -1438,6 +1468,11 @@ function runFind(backwards: boolean): void {
     }
   ).find(q, false, backwards, true);
   findCount.textContent = found ? "" : "无匹配";
+  // window.find() puts the selection (and focus) into the page, which would
+  // steal keystrokes from the search box after the first character. Pull
+  // focus back so typing / Enter keeps working; preventScroll avoids the
+  // page jumping when the input is re-focused.
+  findInput.focus({ preventScroll: true });
 }
 findInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {

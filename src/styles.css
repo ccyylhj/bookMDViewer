@@ -375,12 +375,11 @@ body.panel-resizing * {
   word-break: break-word;
 }
 
-/* ---------- Find bar ---------- */
+/* ---------- Find bar (top-right, under the toolbar) ---------- */
 #find-bar {
   position: fixed;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 50px;
+  right: 14px;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -390,6 +389,7 @@ body.panel-resizing * {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  max-width: calc(100vw - 28px);
 }
 #find-bar[hidden] {
   display: none;
@@ -888,9 +888,9 @@ body.panel-resizing * {
   border-left: 4px solid var(--border);
 }
 
-/* Horizontal-scroll wrapper (added around every table at render time). */
+/* Table wrapper (never scrolls: tables always fit the content width). */
 .markdown-body .md-table-wrap {
-  overflow-x: auto;
+  overflow-x: clip;
   max-width: 100%;
   margin: 1em 0;
 }
@@ -910,7 +910,8 @@ body.panel-resizing * {
    explicit <col> widths are honoured (and can be narrowed below content size). */
 .markdown-body table.resizable {
   table-layout: fixed;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
 }
 /* 手动拖过列宽后，允许按用户宽度换行 */
 .markdown-body table.resizable th:first-child,
@@ -926,7 +927,7 @@ body.panel-resizing * {
   padding: 8px 12px;
   text-align: left;
   vertical-align: top;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 .markdown-body thead th {
   font-weight: 600;
