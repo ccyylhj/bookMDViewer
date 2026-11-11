@@ -1461,12 +1461,18 @@ function runFind(backwards: boolean): void {
     findCount.textContent = "";
     return;
   }
-  // window.find(text, caseSensitive, backwards, wrapAround)
-  const found = (
+  // window.find(text, caseSensitive, backwards, wrapAround). Note: WKWebView
+  // (macOS) has no window.find at all — fail with a message, not a TypeError.
+  const nativeFind = (
     window as unknown as {
-      find: (s: string, c: boolean, b: boolean, w: boolean) => boolean;
+      find?: (s: string, c: boolean, b: boolean, w: boolean) => boolean;
     }
-  ).find(q, false, backwards, true);
+  ).find;
+  if (typeof nativeFind !== "function") {
+    findCount.textContent = "当前环境不支持";
+    return;
+  }
+  const found = nativeFind.call(window, q, false, backwards, true);
   findCount.textContent = found ? "" : "无匹配";
   // window.find() puts the selection (and focus) into the page, which would
   // steal keystrokes from the search box after the first character. Pull
@@ -1474,6 +1480,17 @@ function runFind(backwards: boolean): void {
   // page jumping when the input is re-focused.
   findInput.focus({ preventScroll: true });
 }
+// IME (e.g. pinyin) fires `input` for every keystroke mid-composition; running
+// window.find there moves the document selection and kills the composition,
+// so the second character can never be typed. Skip those, search on commit.
+let findComposing = false;
+findInput.addEventListener("compositionstart", () => {
+  findComposing = true;
+});
+findInput.addEventListener("compositionend", () => {
+  findComposing = false;
+  runFind(false);
+});
 findInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
     ev.preventDefault();
@@ -1483,7 +1500,12 @@ findInput.addEventListener("keydown", (ev) => {
     closeFind();
   }
 });
-findInput.addEventListener("input", () => runFind(false));
+findInput.addEventListener("input", (ev) => {
+  // Skip IME mid-composition keystrokes (see above); the committed text is
+  // searched on compositionend.
+  if (findComposing || (ev as InputEvent).isComposing) return;
+  runFind(false);
+});
 (document.getElementById("find-next") as HTMLButtonElement).addEventListener("click", () => runFind(false));
 (document.getElementById("find-prev") as HTMLButtonElement).addEventListener("click", () => runFind(true));
 (document.getElementById("find-close") as HTMLButtonElement).addEventListener("click", closeFind);
