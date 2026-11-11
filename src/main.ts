@@ -1029,63 +1029,9 @@ settingsModal.addEventListener("click", (ev) => {
 });
 applyReadingFont();
 
-// ---------- Check for updates (GitHub latest release) ----------
-const updateCheckBtn = document.getElementById("update-check") as HTMLButtonElement;
-const updateStatus = document.getElementById("update-status") as HTMLElement;
-const updateCurrent = document.getElementById("update-current") as HTMLElement;
-updateCurrent.textContent = `v${__APP_VERSION__}`;
-
-// Compare dotted versions: >0 if a newer than b, <0 if older, 0 if equal.
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
-
-function showUpdateStatus(text: string, isNew = false, url?: string): void {
-  updateStatus.hidden = false;
-  updateStatus.classList.toggle("new", isNew);
-  updateStatus.textContent = text;
-  if (url) {
-    const a = document.createElement("a");
-    a.textContent = "前往下载";
-    a.href = "#";
-    a.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      void openUrl(url);
-    });
-    updateStatus.append(" ", a);
-  }
-}
-
-async function checkUpdate(): Promise<void> {
-  updateCheckBtn.disabled = true;
-  showUpdateStatus("检查中…");
-  try {
-    const res = await fetch(
-      "https://api.github.com/repos/craig7351/bookMDViewer/releases/latest",
-      { headers: { Accept: "application/vnd.github+json" } },
-    );
-    if (!res.ok) throw new Error(String(res.status));
-    const data = (await res.json()) as { tag_name?: string; html_url?: string };
-    const latest = (data.tag_name ?? "").replace(/^v/, "");
-    if (!latest) throw new Error("no tag");
-    if (compareVersions(latest, __APP_VERSION__) > 0) {
-      showUpdateStatus(`发现新版 v${latest}`, true, data.html_url);
-    } else {
-      showUpdateStatus("已是最新版本 ✓");
-    }
-  } catch {
-    showUpdateStatus("无法检查更新(请确认网络)");
-  } finally {
-    updateCheckBtn.disabled = false;
-  }
-}
-updateCheckBtn.addEventListener("click", () => void checkUpdate());
+// ---------- Version display (self-use build: no update check) ----------
+(document.getElementById("update-current") as HTMLElement).textContent =
+  `v${__APP_VERSION__}`;
 
 // ---------- About dialog (version info) ----------
 const REPO_URL = "https://github.com/craig7351/bookMDViewer";
@@ -1451,7 +1397,7 @@ function dgCenterZoom(factor: number): void {
 (document.getElementById("dg-reset") as HTMLButtonElement).addEventListener("click", dgFit);
 (document.getElementById("dg-close") as HTMLButtonElement).addEventListener("click", closeDiagram);
 
-// ---------- Find in document (Ctrl+F, Enter-triggered, scoped to article) ----------
+// ---------- Find in document (Ctrl+F, live + Enter-to-next, scoped to article) ----------
 let findMarks: HTMLElement[] = [];
 let findIndex = -1;
 let findQuery = "";
@@ -1541,8 +1487,11 @@ function stepFind(backwards: boolean): void {
   paintCurrent(true);
 }
 
-// Enter-triggered: typing only clears stale highlights, Enter/↑/↓ search.
+// Enter-triggered + debounced live search: typing pauses briefly → jump to
+// the first match; Enter / ↑ / ↓ step through the rest.
+let findDebounce: number | undefined;
 function runFind(backwards: boolean): void {
+  window.clearTimeout(findDebounce);
   const q = findInput.value;
   if (!q) {
     clearFindMarks();
@@ -1565,6 +1514,30 @@ function runFind(backwards: boolean): void {
 
 function openFind(): void {
   findBar.hidden = false;
+  // Pre-fill with the current selection: article selection in preview mode,
+  // textarea selection in edit mode. First line only, capped in length.
+  let raw = "";
+  if (editMode) {
+    const s = editor.selectionStart ?? 0;
+    const e = editor.selectionEnd ?? 0;
+    if (e > s) raw = editor.value.slice(s, e);
+  } else {
+    const sel = window.getSelection();
+    // Only take selections from the article, not the side panels.
+    if (
+      sel &&
+      !sel.isCollapsed &&
+      content.contains(sel.anchorNode) &&
+      content.contains(sel.focusNode)
+    ) {
+      raw = sel.toString();
+    }
+  }
+  const snippet = (raw.split(/\r?\n/)[0] ?? "").trim().slice(0, 200);
+  if (snippet && snippet !== findInput.value) {
+    findInput.value = snippet;
+    runFind(false);
+  }
   findInput.focus();
   findInput.select();
 }
@@ -1617,13 +1590,11 @@ findInput.addEventListener("keydown", (ev) => {
   }
 });
 findInput.addEventListener("input", (ev) => {
-  // Enter-to-search: typing only clears stale highlights; Enter re-searches.
+  // Live search on pause (debounced); mid-composition keystrokes are skipped
+  // and searched once on compositionend instead.
   if (findComposing || (ev as InputEvent).isComposing) return;
-  if (findInput.value !== findQuery) {
-    clearFindMarks();
-    findQuery = "";
-    findCount.textContent = "";
-  }
+  window.clearTimeout(findDebounce);
+  findDebounce = window.setTimeout(() => runFind(false), 220);
 });
 (document.getElementById("find-next") as HTMLButtonElement).addEventListener("click", () => runFind(false));
 (document.getElementById("find-prev") as HTMLButtonElement).addEventListener("click", () => runFind(true));
