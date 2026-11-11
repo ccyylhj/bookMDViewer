@@ -457,6 +457,7 @@ async function renderMarkdown(
   addCopyButtons();
   makeTablesResizable();
   buildToc();
+  refreshFindAfterRender();
 
   // Lazily pull in mermaid only when a diagram is actually present.
   const diagrams = content.querySelectorAll<HTMLElement>("pre.mermaid");
@@ -619,8 +620,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,Bli
 .markdown-body blockquote{margin:0;padding:0 1em;color:var(--muted);border-left:4px solid var(--border)}
 .markdown-body table{border-collapse:collapse;width:100%;max-width:100%;margin:1.2em 0;font-size:14.5px;line-height:1.65}
 .markdown-body th,.markdown-body td{border:none;border-bottom:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
-.markdown-body thead th{font-weight:600}
-.markdown-body th:first-child,.markdown-body td:first-child,.markdown-body th:nth-child(2),.markdown-body td:nth-child(2){white-space:nowrap}
+.markdown-body thead th{font-weight:600;white-space:nowrap}
 .markdown-body img{max-width:100%}
 .markdown-body hr{border:none;border-top:1px solid var(--border);margin:1.6em 0}
 .markdown-body .task-list-item{list-style:none}
@@ -633,6 +633,13 @@ function buildExportHtml(): string {
   const article = content.cloneNode(true) as HTMLElement;
   // Copy buttons are UI-only — strip them from the exported document.
   article.querySelectorAll(".copy-btn").forEach((b) => b.remove());
+  // Search highlights are session-only — unwrap them in the export.
+  article.querySelectorAll("mark.find-mark").forEach((m) => {
+    m.parentNode?.replaceChild(
+      article.ownerDocument.createTextNode(m.textContent ?? ""),
+      m,
+    );
+  });
   // Strip column-resize scaffolding so exported tables use the default layout.
   article.querySelectorAll(".col-resizer").forEach((h) => h.remove());
   article.querySelectorAll<HTMLTableElement>("table.resizable").forEach((t) => {
@@ -1444,7 +1451,118 @@ function dgCenterZoom(factor: number): void {
 (document.getElementById("dg-reset") as HTMLButtonElement).addEventListener("click", dgFit);
 (document.getElementById("dg-close") as HTMLButtonElement).addEventListener("click", closeDiagram);
 
-// ---------- Find in document (Ctrl+F) ----------
+// ---------- Find in document (Ctrl+F, Enter-triggered, scoped to article) ----------
+let findMarks: HTMLElement[] = [];
+let findIndex = -1;
+let findQuery = "";
+
+function clearFindMarks(): void {
+  content.querySelectorAll("mark.find-mark").forEach((m) => {
+    const parent = m.parentNode;
+    if (!parent) return;
+    parent.replaceChild(document.createTextNode(m.textContent ?? ""), m);
+    parent.normalize();
+  });
+  findMarks = [];
+  findIndex = -1;
+}
+
+// (Re)build <mark> highlights for q inside #content only — the file explorer
+// and outline are never touched. Uses marks instead of window.find, so the
+// document selection (and input focus) is never disturbed: IME-safe.
+function applyFindMarks(q: string): void {
+  clearFindMarks();
+  findQuery = q;
+  if (!q) {
+    findCount.textContent = "";
+    return;
+  }
+  const needle = q.toLowerCase();
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+    acceptNode(node: Node): number {
+      const el = (node as Text).parentElement;
+      if (!el) return NodeFilter.FILTER_REJECT;
+      // Skip UI chrome, diagrams and unrendered diagram source.
+      if (el.closest("button, .col-resizer, svg, pre.mermaid"))
+        return NodeFilter.FILTER_REJECT;
+      const text = node.nodeValue ?? "";
+      if (!text || !text.toLowerCase().includes(needle))
+        return NodeFilter.FILTER_SKIP;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  // Collect first: replacing nodes mid-traversal would break the walker.
+  const targets: Text[] = [];
+  while (walker.nextNode()) targets.push(walker.currentNode as Text);
+  targets.forEach((node) => {
+    const text = node.nodeValue ?? "";
+    const lower = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let from = 0;
+    let pos = lower.indexOf(needle);
+    while (pos !== -1) {
+      frag.appendChild(document.createTextNode(text.slice(from, pos)));
+      const mark = document.createElement("mark");
+      mark.className = "find-mark";
+      mark.textContent = text.slice(pos, pos + q.length);
+      frag.appendChild(mark);
+      from = pos + q.length;
+      pos = lower.indexOf(needle, from);
+    }
+    frag.appendChild(document.createTextNode(text.slice(from)));
+    node.parentNode?.replaceChild(frag, node);
+  });
+  findMarks = Array.from(content.querySelectorAll("mark.find-mark"));
+}
+
+function paintCurrent(scroll: boolean): void {
+  content
+    .querySelectorAll("mark.find-mark.current")
+    .forEach((m) => m.classList.remove("current"));
+  const el = findMarks[findIndex];
+  if (!el) return;
+  el.classList.add("current");
+  if (scroll) el.scrollIntoView({ block: "center" });
+  findCount.textContent = `${findIndex + 1} / ${findMarks.length}`;
+}
+
+function stepFind(backwards: boolean): void {
+  const n = findMarks.length;
+  if (!n) {
+    findCount.textContent = findQuery ? "无匹配" : "";
+    return;
+  }
+  findIndex =
+    findIndex < 0
+      ? 0
+      : backwards
+        ? (findIndex - 1 + n) % n
+        : (findIndex + 1) % n;
+  paintCurrent(true);
+}
+
+// Enter-triggered: typing only clears stale highlights, Enter/↑/↓ search.
+function runFind(backwards: boolean): void {
+  const q = findInput.value;
+  if (!q) {
+    clearFindMarks();
+    findQuery = "";
+    findCount.textContent = "";
+    return;
+  }
+  if (q !== findQuery) {
+    applyFindMarks(q);
+    findIndex = -1;
+    if (!findMarks.length) {
+      findCount.textContent = "无匹配";
+      return;
+    }
+  }
+  stepFind(backwards);
+  // Keep typing fluid after clicking the ↑/↓ buttons.
+  findInput.focus({ preventScroll: true });
+}
+
 function openFind(): void {
   findBar.hidden = false;
   findInput.focus();
@@ -1453,46 +1571,44 @@ function openFind(): void {
 function closeFind(): void {
   findBar.hidden = true;
   findCount.textContent = "";
+  clearFindMarks();
+  findQuery = "";
   window.getSelection()?.removeAllRanges();
 }
-function runFind(backwards: boolean): void {
-  const q = findInput.value;
-  if (!q) {
-    findCount.textContent = "";
+
+// Re-rendering rebuilds the DOM, invalidating old marks: re-apply silently
+// (no scroll jump) when the bar is open.
+function refreshFindAfterRender(): void {
+  findMarks = [];
+  findIndex = -1;
+  if (findBar.hidden || !findInput.value) {
+    findQuery = "";
+    if (!findBar.hidden) findCount.textContent = "";
     return;
   }
-  // window.find(text, caseSensitive, backwards, wrapAround). Note: WKWebView
-  // (macOS) has no window.find at all — fail with a message, not a TypeError.
-  const nativeFind = (
-    window as unknown as {
-      find?: (s: string, c: boolean, b: boolean, w: boolean) => boolean;
-    }
-  ).find;
-  if (typeof nativeFind !== "function") {
-    findCount.textContent = "当前环境不支持";
-    return;
+  applyFindMarks(findInput.value);
+  if (findMarks.length) {
+    findIndex = 0;
+    paintCurrent(false);
+  } else {
+    findCount.textContent = "无匹配";
   }
-  const found = nativeFind.call(window, q, false, backwards, true);
-  findCount.textContent = found ? "" : "无匹配";
-  // window.find() puts the selection (and focus) into the page, which would
-  // steal keystrokes from the search box after the first character. Pull
-  // focus back so typing / Enter keeps working; preventScroll avoids the
-  // page jumping when the input is re-focused.
-  findInput.focus({ preventScroll: true });
 }
-// IME (e.g. pinyin) fires `input` for every keystroke mid-composition; running
-// window.find there moves the document selection and kills the composition,
-// so the second character can never be typed. Skip those, search on commit.
+// IME (e.g. pinyin) fires `input` for every keystroke mid-composition; that is
+// only used to clear stale highlights now, and the Enter that commits a
+// composition falls through to compositionend, which runs the search.
 let findComposing = false;
 findInput.addEventListener("compositionstart", () => {
   findComposing = true;
 });
 findInput.addEventListener("compositionend", () => {
   findComposing = false;
-  runFind(false);
+  if (!findBar.hidden) runFind(false);
 });
 findInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
+    // Let an IME commit first; compositionend runs the search for that Enter.
+    if (findComposing || ev.isComposing) return;
     ev.preventDefault();
     runFind(ev.shiftKey);
   } else if (ev.key === "Escape") {
@@ -1501,10 +1617,13 @@ findInput.addEventListener("keydown", (ev) => {
   }
 });
 findInput.addEventListener("input", (ev) => {
-  // Skip IME mid-composition keystrokes (see above); the committed text is
-  // searched on compositionend.
+  // Enter-to-search: typing only clears stale highlights; Enter re-searches.
   if (findComposing || (ev as InputEvent).isComposing) return;
-  runFind(false);
+  if (findInput.value !== findQuery) {
+    clearFindMarks();
+    findQuery = "";
+    findCount.textContent = "";
+  }
 });
 (document.getElementById("find-next") as HTMLButtonElement).addEventListener("click", () => runFind(false));
 (document.getElementById("find-prev") as HTMLButtonElement).addEventListener("click", () => runFind(true));
