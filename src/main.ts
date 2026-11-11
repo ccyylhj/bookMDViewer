@@ -15,14 +15,21 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import hljsLightCss from "highlight.js/styles/github.css?inline";
 import hljsDarkCss from "highlight.js/styles/github-dark.css?inline";
 
-// ---------- Color theme (system / light / dark) ----------
-type ThemePref = "system" | "light" | "dark";
+// ---------- Color theme (light / dark toggle) ----------
+type ThemePref = "light" | "dark";
 const systemDarkMQ = window.matchMedia("(prefers-color-scheme: dark)");
-let themePref = (localStorage.getItem("theme") as ThemePref | null) ?? "system";
+// Migrate old "system" prefs: resolve once against the OS setting, then stay manual.
+const storedTheme = localStorage.getItem("theme");
+let themePref: ThemePref =
+  storedTheme === "dark" || storedTheme === "light"
+    ? storedTheme
+    : systemDarkMQ.matches
+      ? "dark"
+      : "light";
 
-// Whether the *effective* theme is dark, given the user's preference.
+// Whether the *effective* theme is dark.
 function currentDark(): boolean {
-  return themePref === "dark" || (themePref === "system" && systemDarkMQ.matches);
+  return themePref === "dark";
 }
 
 // highlight.js theme is swapped by rewriting this <style> element's contents.
@@ -88,7 +95,7 @@ const appWindow = getCurrentWindow();
 const EMPTY_STATE_HTML = `<div class="empty-state">
   <h1>Markdown Viewer</h1>
   <p>Drag a <code>.md</code> file here, or <a id="empty-open" href="#">open one</a>.</p>
-  <p class="app-version"><a id="about-open" href="#">關於 / About</a></p>
+  <p class="app-version"><a id="about-open" href="#">关于 / About</a></p>
   <div id="recent-list"></div>
 </div>`;
 let closeAction: "window" | "doc" | "switch" = "window";
@@ -163,8 +170,8 @@ function addCopyButtons(): void {
       const btn = document.createElement("button");
       btn.className = "copy-btn";
       btn.type = "button";
-      btn.title = "複製";
-      btn.setAttribute("aria-label", "複製程式碼");
+      btn.title = "复制";
+      btn.setAttribute("aria-label", "复制代码");
       btn.textContent = "📋";
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -178,7 +185,7 @@ function addCopyButtons(): void {
             btn.classList.remove("copied");
           }, 1400);
         } catch {
-          toast("複製失敗");
+          toast("复制失败");
         }
       });
       pre.appendChild(btn);
@@ -580,9 +587,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,Bli
 .markdown-body pre{background:var(--code-bg);padding:16px;border-radius:8px;overflow:auto;line-height:1.45}
 .markdown-body pre code{background:transparent;padding:0;font-size:90%}
 .markdown-body blockquote{margin:0;padding:0 1em;color:var(--muted);border-left:4px solid var(--border)}
-.markdown-body table{border-collapse:collapse;display:block;width:max-content;max-width:100%;overflow:auto;margin:1em 0}
-.markdown-body th,.markdown-body td{border:1px solid var(--border);padding:6px 13px}
-.markdown-body tr:nth-child(2n){background:var(--stripe)}
+.markdown-body table{border-collapse:collapse;width:100%;max-width:100%;margin:1.2em 0;font-size:14.5px;line-height:1.65}
+.markdown-body th,.markdown-body td{border:none;border-bottom:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;overflow-wrap:break-word}
+.markdown-body thead th{font-weight:600}
+.markdown-body th:first-child,.markdown-body td:first-child,.markdown-body th:nth-child(2),.markdown-body td:nth-child(2){white-space:nowrap}
 .markdown-body img{max-width:100%}
 .markdown-body hr{border:none;border-top:1px solid var(--border);margin:1.6em 0}
 .markdown-body .task-list-item{list-style:none}
@@ -627,7 +635,7 @@ function buildExportHtml(): string {
   const themeCss = currentDark() ? hljsDarkCss : hljsLightCss;
 
   return `<!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -645,7 +653,7 @@ ${article.innerHTML}
 
 async function exportHtml(): Promise<void> {
   if (!currentPath) {
-    toast("沒有開啟的檔案");
+    toast("没有打开的文件");
     return;
   }
   // Make sure the preview reflects the latest source (e.g. while editing).
@@ -655,9 +663,9 @@ async function exportHtml(): Promise<void> {
   const out = `${base}.html`;
   try {
     await invoke("write_md", { path: out, content: buildExportHtml() });
-    toast(`已匯出 ${out.split(/[\\/]/).pop()}`);
+    toast(`已导出 ${out.split(/[\\/]/).pop()}`);
   } catch (e) {
-    toast(`匯出失敗: ${String(e)}`);
+    toast(`导出失败: ${String(e)}`);
   }
 }
 
@@ -755,16 +763,55 @@ function toggleWide(): void {
 wideToggle.addEventListener("click", toggleWide);
 applyWide();
 
-// Cycle the color theme: system → light → dark → system.
+// Narrow-mode max width (px): the centered column width when wide mode is off.
+const NARROW_W_MIN = 480;
+const NARROW_W_MAX = 1400;
+const NARROW_W_DEFAULT = 860;
+let narrowWidth = parseInt(
+  localStorage.getItem("narrowWidth") ?? String(NARROW_W_DEFAULT),
+  10,
+);
+if (!Number.isFinite(narrowWidth)) narrowWidth = NARROW_W_DEFAULT;
+function clampNarrowWidth(w: number): number {
+  return Math.min(NARROW_W_MAX, Math.max(NARROW_W_MIN, Math.round(w)));
+}
+function paintNarrowWidth(): void {
+  document.documentElement.style.setProperty(
+    "--narrow-width",
+    `${clampNarrowWidth(narrowWidth)}px`,
+  );
+}
+const narrowWidthInput = document.getElementById(
+  "narrow-width",
+) as HTMLInputElement;
+// Typing: live preview only, so mid-typing values (e.g. "1") don't snap.
+narrowWidthInput.addEventListener("input", () => {
+  const v = parseInt(narrowWidthInput.value, 10);
+  if (!Number.isFinite(v)) return;
+  narrowWidth = v;
+  paintNarrowWidth();
+  localStorage.setItem("narrowWidth", String(clampNarrowWidth(narrowWidth)));
+});
+// Commit (blur/Enter): clamp, write back, persist.
+narrowWidthInput.addEventListener("change", () => {
+  const v = parseInt(narrowWidthInput.value, 10);
+  narrowWidth = Number.isFinite(v) ? v : NARROW_W_DEFAULT;
+  narrowWidth = clampNarrowWidth(narrowWidth);
+  narrowWidthInput.value = String(narrowWidth);
+  paintNarrowWidth();
+  localStorage.setItem("narrowWidth", String(narrowWidth));
+});
+narrowWidthInput.value = String(clampNarrowWidth(narrowWidth));
+paintNarrowWidth();
+
+// Cycle the color theme: light ↔ dark.
 const THEME_ICON: Record<ThemePref, string> = {
-  system: "🖥️",
   light: "☀️",
   dark: "🌙",
 };
 const THEME_TITLE: Record<ThemePref, string> = {
-  system: "主題:跟隨系統 (點擊切換)",
-  light: "主題:亮色 (點擊切換)",
-  dark: "主題:暗色 (點擊切換)",
+  light: "主题:亮色 (点击切换)",
+  dark: "主题:暗色 (点击切换)",
 };
 function applyTheme(): void {
   document.documentElement.dataset.theme = themePref;
@@ -779,15 +826,10 @@ function applyTheme(): void {
   }
 }
 function cycleTheme(): void {
-  themePref =
-    themePref === "system" ? "light" : themePref === "light" ? "dark" : "system";
+  themePref = themePref === "light" ? "dark" : "light";
   applyTheme();
 }
 themeToggle.addEventListener("click", cycleTheme);
-// Follow live OS theme changes while in "system" mode.
-systemDarkMQ.addEventListener("change", () => {
-  if (themePref === "system") applyTheme();
-});
 applyTheme();
 
 // ---------- Settings: reading font (separate Latin + CJK) ----------
@@ -802,19 +844,19 @@ interface FontOption {
 const DEFAULT_LATIN_STACK =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial';
 const LATIN_FONTS: FontOption[] = [
-  { id: "system", label: "系統預設 Sans", stack: DEFAULT_LATIN_STACK, generic: "sans-serif" },
+  { id: "system", label: "系统默认 Sans", stack: DEFAULT_LATIN_STACK, generic: "sans-serif" },
   { id: "serif", label: "Serif (Georgia)", stack: 'Georgia, "Times New Roman"', generic: "serif" },
   { id: "helvetica", label: "Helvetica / Arial", stack: "Helvetica, Arial", generic: "sans-serif" },
   { id: "verdana", label: "Verdana", stack: "Verdana, Geneva", generic: "sans-serif" },
-  { id: "mono", label: "等寬 Mono", stack: "ui-monospace, Consolas", generic: "monospace" },
+  { id: "mono", label: "等宽 Mono", stack: "ui-monospace, Consolas", generic: "monospace" },
 ];
 const CJK_FONTS: FontOption[] = [
-  { id: "system", label: "系統預設", stack: "" },
-  { id: "jhenghei", label: "微軟正黑體", stack: '"Microsoft JhengHei", "Microsoft YaHei"' },
-  { id: "pingfang", label: "蘋方 PingFang", stack: '"PingFang TC", "PingFang SC"' },
-  { id: "notosans", label: "思源黑體 Noto Sans", stack: '"Noto Sans TC", "Noto Sans CJK TC"' },
-  { id: "notoserif", label: "思源宋體 Noto Serif", stack: '"Noto Serif TC", "Noto Serif CJK TC"' },
-  { id: "kai", label: "標楷體", stack: '"DFKai-SB", "BiauKai", "Kaiti TC"' },
+  { id: "system", label: "系统默认", stack: "" },
+  { id: "jhenghei", label: "微软雅黑", stack: '"Microsoft YaHei", "Microsoft JhengHei", "PingFang SC"' },
+  { id: "pingfang", label: "苹方 PingFang", stack: '"PingFang SC", "PingFang TC"' },
+  { id: "notosans", label: "思源黑体 Noto Sans", stack: '"Noto Sans SC", "Noto Sans CJK SC", "Noto Sans TC"' },
+  { id: "notoserif", label: "思源宋体 Noto Serif", stack: '"Noto Serif SC", "Noto Serif CJK SC", "Noto Serif TC"' },
+  { id: "kai", label: "楷体", stack: '"KaiTi", "Kaiti SC", "STKaiti", "DFKai-SB", "BiauKai"' },
 ];
 
 const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement;
@@ -835,7 +877,7 @@ function fillFontSelect(sel: HTMLSelectElement, opts: FontOption[]): void {
   // "Custom" lets the user type any installed font family by name.
   const custom = document.createElement("option");
   custom.value = "custom";
-  custom.textContent = "自訂… / Custom…";
+  custom.textContent = "自定义… / Custom…";
   sel.appendChild(custom);
 }
 fillFontSelect(fontLatinSel, LATIN_FONTS);
@@ -973,7 +1015,7 @@ function showUpdateStatus(text: string, isNew = false, url?: string): void {
   updateStatus.textContent = text;
   if (url) {
     const a = document.createElement("a");
-    a.textContent = "前往下載";
+    a.textContent = "前往下载";
     a.href = "#";
     a.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -985,7 +1027,7 @@ function showUpdateStatus(text: string, isNew = false, url?: string): void {
 
 async function checkUpdate(): Promise<void> {
   updateCheckBtn.disabled = true;
-  showUpdateStatus("檢查中…");
+  showUpdateStatus("检查中…");
   try {
     const res = await fetch(
       "https://api.github.com/repos/craig7351/bookMDViewer/releases/latest",
@@ -996,12 +1038,12 @@ async function checkUpdate(): Promise<void> {
     const latest = (data.tag_name ?? "").replace(/^v/, "");
     if (!latest) throw new Error("no tag");
     if (compareVersions(latest, __APP_VERSION__) > 0) {
-      showUpdateStatus(`發現新版 v${latest}`, true, data.html_url);
+      showUpdateStatus(`发现新版 v${latest}`, true, data.html_url);
     } else {
       showUpdateStatus("已是最新版本 ✓");
     }
   } catch {
-    showUpdateStatus("無法檢查更新(請確認網路)");
+    showUpdateStatus("无法检查更新(请确认网络)");
   } finally {
     updateCheckBtn.disabled = false;
   }
@@ -1060,7 +1102,7 @@ function renderRecents(): void {
   const list = getRecents();
   if (!list.length) return;
   const h = document.createElement("h3");
-  h.textContent = "最近開啟";
+  h.textContent = "最近打开";
   host.appendChild(h);
   list.forEach((p) => {
     const a = document.createElement("a");
@@ -1137,7 +1179,7 @@ function showFileMenu(ev: MouseEvent, path: string): void {
   const menu = document.createElement("div");
   menu.className = "ctx-menu";
   const item = document.createElement("button");
-  item.textContent = "在新視窗開啟";
+  item.textContent = "在新窗口打开";
   item.addEventListener("click", () => {
     closeFileMenu();
     void invoke("open_new_window", { path });
@@ -1158,7 +1200,7 @@ async function renderFiles(dir: string | null): Promise<void> {
     filesPanel.innerHTML = "";
     const hint = document.createElement("div");
     hint.className = "files-hint";
-    hint.textContent = "開啟檔案後可瀏覽其目錄";
+    hint.textContent = "打开文件后可浏览其目录";
     filesPanel.appendChild(hint);
     return;
   }
@@ -1234,6 +1276,48 @@ function toggleFiles(): void {
 filesBtn.addEventListener("click", toggleFiles);
 // Restore persisted state on load.
 if (filesOpen) layout.classList.add("files-open");
+
+// ---------- Drag to resize side panels (files explorer + outline) ----------
+// Widths persist in localStorage; double-click a gutter to reset to default.
+function setupPanelResize(
+  panel: HTMLElement,
+  resizerId: string,
+  storageKey: string,
+  defaultWidth: number,
+  minWidth = 160,
+  maxWidth = 600,
+): void {
+  const resizer = document.getElementById(resizerId) as HTMLElement | null;
+  if (!resizer) return;
+  const apply = (w: number): void => {
+    const clamped = Math.min(maxWidth, Math.max(minWidth, Math.round(w)));
+    panel.style.flexBasis = `${clamped}px`;
+    panel.style.width = `${clamped}px`;
+    localStorage.setItem(storageKey, String(clamped));
+  };
+  const stored = parseFloat(localStorage.getItem(storageKey) ?? "");
+  if (Number.isFinite(stored)) apply(stored);
+
+  resizer.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panel.getBoundingClientRect().width;
+    document.body.classList.add("panel-resizing");
+    const onMove = (me: MouseEvent): void => {
+      apply(startW + (me.clientX - startX));
+    };
+    const onUp = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("panel-resizing");
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  resizer.addEventListener("dblclick", () => apply(defaultWidth));
+}
+setupPanelResize(filesPanel, "files-resizer", "filesWidth", 240);
+setupPanelResize(toc, "toc-resizer", "tocWidth", 264);
 
 // ---------- Mermaid diagram lightbox (click to zoom/pan) ----------
 const diagramModal = document.getElementById("diagram-modal") as HTMLElement;
@@ -1353,7 +1437,7 @@ function runFind(backwards: boolean): void {
       find: (s: string, c: boolean, b: boolean, w: boolean) => boolean;
     }
   ).find(q, false, backwards, true);
-  findCount.textContent = found ? "" : "無相符";
+  findCount.textContent = found ? "" : "无匹配";
 }
 findInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
@@ -1492,6 +1576,9 @@ async function setupWindowSize(): Promise<void> {
 
   // Persist user resizes (debounced). Skips saving while suppressed and ignores
   // a width that fills the monitor — that's the Spaces-switch jump, not a drag.
+  // Maximized/fullscreen sizes are never saved: they would both corrupt the
+  // remembered normal size and (via the focus-restore below) kick the window
+  // out of maximized state on the next Alt+Tab.
   await appWindow.onResized(({ payload }) => {
     if (Date.now() < suppressWinSaveUntil) return;
     if (monitorWidth && payload.width >= monitorWidth - 2) return;
@@ -1499,13 +1586,30 @@ async function setupWindowSize(): Promise<void> {
     if (!isSaneSize(payload.width, payload.height)) return;
     const { width, height } = payload;
     window.clearTimeout(winSaveTimer);
-    winSaveTimer = window.setTimeout(() => saveWinSize(width, height), 300);
+    winSaveTimer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (await appWindow.isMaximized()) return;
+          if (await appWindow.isFullscreen()) return;
+        } catch {
+          /* fall through and save */
+        }
+        saveWinSize(width, height);
+      })();
+    }, 300);
   });
 
   // On regaining focus (e.g. switching back to this Space), restore the saved
   // size and briefly suppress saving so the OS resize can't overwrite it.
-  await appWindow.onFocusChanged(({ payload: focused }) => {
+  // Never touches a maximized/fullscreen window — restoring would un-maximize it.
+  await appWindow.onFocusChanged(async ({ payload: focused }) => {
     if (!focused) return;
+    try {
+      if (await appWindow.isMaximized()) return;
+      if (await appWindow.isFullscreen()) return;
+    } catch {
+      /* fall through and restore */
+    }
     void refreshMonitorWidth();
     const s = loadWinSize();
     if (!s) return;

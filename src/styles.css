@@ -127,6 +127,32 @@ body {
 #layout.files-open #files {
   display: block;
 }
+#layout.files-open #files-resizer {
+  display: block;
+}
+#layout.has-toc:not(.toc-collapsed) #toc-resizer {
+  display: block;
+}
+
+/* 侧栏拖拽条：平时透明，悬停时高亮 */
+.panel-resizer {
+  display: none;
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+}
+.panel-resizer:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+body.panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+body.panel-resizing * {
+  cursor: col-resize !important;
+}
 .files-head {
   padding: 4px 10px 8px;
   font-size: 12px;
@@ -631,15 +657,14 @@ body {
   background: var(--bg);
   color: var(--fg);
 }
-.settings-preview {
-  margin: 6px 0 18px;
-  padding: 12px;
+.settings-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--code-bg);
-  font-family: var(--reading-font, inherit);
-  font-size: 15px;
-  line-height: 1.5;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .settings-sep {
@@ -761,7 +786,7 @@ body {
   min-width: 0;
   height: 100vh;
   overflow-y: auto;
-  max-width: 860px;
+  max-width: var(--narrow-width, 860px);
   margin: 0 auto;
   /* Large bottom padding so any heading (even the last) can scroll to the top
      when clicked in the outline. */
@@ -871,9 +896,12 @@ body {
 }
 .markdown-body table {
   border-collapse: collapse;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
-  margin: 1em 0;
+  margin: 1.2em 0;
+  table-layout: auto;
+  font-size: 0.93em;
+  line-height: 1.65;
 }
 .markdown-body .md-table-wrap > table {
   margin: 0;
@@ -884,11 +912,32 @@ body {
   table-layout: fixed;
   max-width: none;
 }
+/* 手动拖过列宽后，允许按用户宽度换行 */
+.markdown-body table.resizable th:first-child,
+.markdown-body table.resizable td:first-child,
+.markdown-body table.resizable th:nth-child(2),
+.markdown-body table.resizable td:nth-child(2) {
+  white-space: normal;
+}
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid var(--border);
-  padding: 6px 13px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
   overflow-wrap: break-word;
+}
+.markdown-body thead th {
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+/* 日期 / 侧栏这类窄列保持单行，不被长内容挤成竖排 */
+.markdown-body th:first-child,
+.markdown-body td:first-child,
+.markdown-body th:nth-child(2),
+.markdown-body td:nth-child(2) {
+  white-space: nowrap;
 }
 .markdown-body th.has-resizer {
   position: relative;
@@ -915,8 +964,9 @@ body.col-resizing {
 body.col-resizing * {
   cursor: col-resize !important;
 }
+/* 图1风格：无斑马纹，行与行之间只靠横线分隔 */
 .markdown-body tr:nth-child(2n) {
-  background: var(--table-stripe);
+  background: transparent;
 }
 
 .markdown-body img {
